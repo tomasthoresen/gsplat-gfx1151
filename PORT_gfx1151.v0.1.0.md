@@ -17,7 +17,7 @@ held-out views, identical seed cloud (600k points).
 
 **Provenance** — gfx1151 (Radeon 8060S, Strix Halo), **wave32**, ROCm 7.2.1,
 PyTorch 2.13.0+rocm7.2, Python 3.12, venv `/home/amd/imgen`, this branch at
-`79951f2`, upstream pin `b01acd4`. Reference: NVIDIA RTX A4000, upstream gsplat
+`75baa7b`, upstream pin `b01acd4`. Reference: NVIDIA RTX A4000, upstream gsplat
 1.5.3, torch 2.5.1+cu121, conda env `sam3d-objects`.
 
 | build | held-out PSNR | gaussians | wall clock |

@@ -129,3 +129,6 @@ results
 gsplat/hip/
 build/
 *.egg-info/
+
+# local-only assistant instruction file; never committed
+CLAUDE.md
