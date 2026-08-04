@@ -37,7 +37,7 @@ Entry format:
   the hardware wavefront, and a scan over lanes 32–63, address lanes that do
   not exist.
 - Verification: `kernel_probe.py` gradient parity vs A4000 golden output.
-- Commit: 9bf6896, 75baa7b
+- Commit: 3a38319, 79951f2
 
 ## 2026-08-04 — gsplat/cuda/csrc/RasterizeToPixels{2DGS,3DGS,FromWorld3DGS}Bwd.cu
 - Change: `rocprim_warpSum<64>` / `<CDIM,64>` / `<3,64>` → 32; matching
@@ -50,7 +50,7 @@ Entry format:
   the allocation overruns shared memory silently; and `if (block_size == 64)`
   is a tile-size dispatch, not a wavefront constant, and must be left alone.
 - Verification: held-out PSNR 22.25 → 22.94 dB on the reference capture.
-- Commit: 9bf6896
+- Commit: 3a38319
 
 ## 2026-08-04 — gsplat/cuda/include/Common.cuh
 - Change: `::c10::hip::HIPCachingAllocator::get()` →
@@ -61,7 +61,7 @@ Entry format:
   against (torch 2.6–2.9) is gone.
 - Verification: compiles; upstream fails with
   `no member named 'HIPCachingAllocator' in namespace 'c10::hip'`.
-- Commit: 9bf6896
+- Commit: 3a38319
 
 ## 2026-08-04 — gsplat/cuda/csrc/Projection{EWA3DGS,2DGS}{Fused,Packed}.cu
 - Change: `warp_thread_id = threadIdx.x % 64` → `% 32`; leader-election
@@ -79,4 +79,4 @@ Entry format:
   18,222 → 36,282 (matching A4000 exactly), Σ|g| ratio 0.523 → 1.00000, mean
   relative error 4.98e-01 → 3.06e-05. Held-out PSNR 22.94 → 23.67 dB vs
   23.64 dB on the A4000.
-- Commit: 75baa7b
+- Commit: 79951f2
