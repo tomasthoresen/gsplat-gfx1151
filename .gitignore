@@ -125,3 +125,7 @@ data
 results
 
 !examples/benchmarks/compression/results/
+# hipify output: regenerated on every build
+gsplat/hip/
+build/
+*.egg-info/
