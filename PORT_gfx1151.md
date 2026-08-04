@@ -17,12 +17,13 @@ held-out views, identical seed cloud (600k points):
 
 | build | held-out PSNR | gaussians | wall clock |
 |---|---|---|---|
-| AMD gfx1151, cg tiles left at 64 | 22.25 dB | 491,565 | 4.7 min |
-| **AMD gfx1151, this branch** | **22.94 dB** | **591,724** | 5.1 min |
+| wave32 reductions only | 22.25 dB | 491,565 | 4.7 min |
+| + cooperative-group tiles | 22.94 dB | 591,724 | 5.1 min |
+| **+ projection lane-id (this branch)** | **23.67 dB** | **608,816** | 5.2 min |
 | NVIDIA RTX A4000 (upstream gsplat) | 23.64 dB | 607,821 | 3.8 min |
 
-An integrated GPU within 0.70 dB of a discrete A4000 at 1.34× the wall clock.
-The residual gap is unexplained — see *Known gap* below.
+**Parity with a discrete A4000 at 1.37× the wall clock**, on an integrated GPU.
+The 0.03 dB and 0.16% Gaussian difference is float noise — see *Validation*.
 
 ## Environment
 
@@ -100,23 +101,58 @@ in 2.13 declares `namespace c10::cuda::CUDACachingAllocator`; the
 2.6–2.9) is gone. Fails at compile time with
 `no member named 'HIPCachingAllocator' in namespace 'c10::hip'`.
 
-## Known gap
+### 4. Projection lane id and lane-scan loops
 
-The remaining 0.70 dB and 3% Gaussian deficit against the A4000 is not
-explained. Reduction order differs between architectures, so bitwise-identical
-results were never expected, but a *systematic* Gaussian deficit points at
-gradients coming out slightly small rather than at float noise — densification
-in `DefaultStrategy` is thresholded on accumulated gradient magnitude.
+The one that mattered most, and the one a training comparison cannot find.
 
-Unexcluded candidates: `manual_warpSum`, and `rocprim::warp_reduce` behaviour
-when the logical warp size equals the hardware wavefront versus when it does not.
+```c
+- unsigned int warp_thread_id = threadIdx.x % 64;
++ unsigned int warp_thread_id = threadIdx.x % 32;
+- for (int i = 0; i < 64; ++i) {        // lane scan for the leader election
++ for (int i = 0; i < 32; ++i) {
+```
 
-Treat upstream on NVIDIA as the reference for published numbers. This branch is
-for iteration, and for the thing it uniquely enables: real-time splat rendering
-on the same machine as the simulator.
+in all four `Projection*.cu` kernels and in `manual_dynamic_reduce_sum_*` in
+`Utils.cuh`.
+
+These kernels reduce per-Gaussian gradients across the lanes that share a
+Gaussian id, elect a leader lane, and have only the leader do the atomic write.
+On wave32, `threadIdx.x % 64` gives half the threads a lane id in 32–63, which
+can never equal a leader lane id in 0–31 — so **those threads never win the
+election and their gradients are silently dropped**. Exactly half.
+
+It affected only `v_means`, `v_scales`, `v_quats` and `v_covar`, because those
+are the projection outputs. Opacity and colour gradients come from the
+rasteriser and were always correct, which is what made the signature legible.
+
+Note these kernels already used `cg::tiled_partition<32>` — the tile was right
+and the lane arithmetic around it was not.
 
 ## Validation
 
-`rasterization()` forward and backward both produce finite, non-zero gradients,
-and training loss at iteration 0 matches the A4000 exactly (0.3923), confirming
-the forward path agrees at initialisation.
+Training comparisons confound kernel numerics with densification decisions and
+view sampling. `kernel_probe.py` removes all three: identical tensors from a
+fixed CPU seed, one forward, one backward, results dumped raw and diffed
+against the same script on the A4000.
+
+Forward agrees to float precision from the start — `img_mean` identical to ten
+significant figures, loss differing at 1.2e-07 (reduction order).
+
+Backward, before and after the lane-id fix:
+
+| tensor | before | after | NVIDIA |
+|---|---|---|---|
+| `g_means` non-zero | 18,222 | 36,282 | 36,282 |
+| `g_scales` non-zero | 18,222 | 36,282 | 36,282 |
+| `g_opac` non-zero | 12,094 | 12,094 | 12,094 |
+| `g_colors` non-zero | 36,282 | 36,282 | 36,282 |
+| `g_means` Σ\|g\| ratio | 0.523 | 1.00000 | 1 |
+| `g_means` mean rel err | 4.98e-01 | 3.06e-05 | — |
+
+Half the gradient entries missing, in exactly the two tensors the projection
+kernels write. After the fix every tensor matches in count and magnitude, with
+relative error at float32 noise.
+
+**Reproduce:** `python kernel_probe.py out.npz` on each machine, then diff the
+arrays. Do this before trusting any wave-size port — a training run that scores
+1.4 dB low looks like tuning, not a dropped half of the gradient.
