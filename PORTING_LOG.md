@@ -104,7 +104,7 @@ Entry format:
   `tests/test_wave_backward.py` passes 11 of 11; against the ungated build the
   suite cannot run to completion. 500 steps of `simple_trainer.py` at the
   default tile size complete without fault.
-- Commit: PENDING
+- Commit: 4884d08
 
 ## 2026-08-20 — gsplat/cuda/include/Common.cuh
 
@@ -116,7 +116,7 @@ Entry format:
   C preprocessor removes `assert` under `NDEBUG`, so release builds discarded
   every rocPRIM radix-sort status.
 - Verification: compiles; `tests/test_wave_backward.py` passes 11 of 11.
-- Commit: PENDING
+- Commit: 4884d08
 
 ## 2026-08-20 — setup.py
 
@@ -133,7 +133,7 @@ Entry format:
   collide with the originals.
 - Verification: a clean clone with submodules initialised builds under
   PyTorch 2.11.0+rocm7.2, where it previously failed.
-- Commit: PENDING
+- Commit: 4884d08
 
 ## 2026-08-20 — gsplat/exporter.py
 
@@ -145,7 +145,7 @@ Entry format:
   opacity discarded the entire scene on export.
 - Verification: `--save_ply` writes a point cloud whose Gaussian count matches
   the trained model.
-- Commit: PENDING
+- Commit: 4884d08
 
 ## 2026-08-20 — examples/simple_trainer.py
 
@@ -156,7 +156,7 @@ Entry format:
   that is not built in a ROCm environment, and the unconditional import aborted
   the trainer at startup.
 - Verification: 500 training steps complete with the extension absent.
-- Commit: PENDING
+- Commit: 4884d08
 
 ## 2026-08-20 — gsplat/cuda/_backend.py
 
@@ -168,7 +168,7 @@ Entry format:
   after a PyTorch upgrade — surfaced later as `AttributeError` on `NoneType`.
 - Verification: an extension built against a different PyTorch now reports the
   undefined symbol and the rebuild command.
-- Commit: PENDING
+- Commit: 4884d08
 
 ## 2026-08-20 — tests/test_wave_backward.py, examples/
 
@@ -187,7 +187,7 @@ Entry format:
 - Verification: 11 of 11 pass on gfx1151. Reintroducing a 64-wide warp tile
   against the 32-lane reductions fails 10 of them; the one that still passes is
   the forward tile-size invariance test, which the defect does not affect.
-- Commit: PENDING
+- Commit: 4884d08
 
 ## Open items
 
