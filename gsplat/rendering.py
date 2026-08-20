@@ -7,7 +7,6 @@ import torch.nn.functional as F
 from torch import Tensor
 from typing_extensions import Literal
 
-from .device_profile import default_tile_size
 from .cuda._wrapper import (
     RollingShutterType,
     FThetaCameraDistortionParameters,
@@ -276,6 +275,10 @@ def rasterization(
     I = B * C
     device = means.device
     if tile_size is None:
+        # imported lazily so that `python -m gsplat.device_profile` does not
+        # re-execute a module the package import already loaded
+        from .device_profile import default_tile_size
+
         tile_size = default_tile_size(device)
     assert means.shape == batch_dims + (N, 3), means.shape
     if covars is None:
@@ -825,6 +828,10 @@ def _rasterization(
     I = B * C
     device = means.device
     if tile_size is None:
+        # imported lazily so that `python -m gsplat.device_profile` does not
+        # re-execute a module the package import already loaded
+        from .device_profile import default_tile_size
+
         tile_size = default_tile_size(device)
     assert means.shape == batch_dims + (N, 3), means.shape
     assert quats.shape == batch_dims + (N, 4), quats.shape
@@ -1407,6 +1414,10 @@ def rasterization_2dgs(
     I = B * C
     device = means.device
     if tile_size is None:
+        # imported lazily so that `python -m gsplat.device_profile` does not
+        # re-execute a module the package import already loaded
+        from .device_profile import default_tile_size
+
         tile_size = default_tile_size(device)
     channels = colors.shape[-1]
 
