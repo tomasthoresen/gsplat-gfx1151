@@ -231,7 +231,7 @@ Entry format:
   two runs under the profile, against 20.94 and 21.15 it/s with
   `GSPLAT_TILE_SIZE=8`. Gradients were separately confirmed identical across
   tile sizes 8, 16, 24 and 32, with finite differences passing at 32.
-- Commit: PENDING
+- Commit: 5af229d
 
 ## 2026-08-20 — examples/simple_trainer.py (structural similarity)
 
@@ -246,4 +246,4 @@ Entry format:
   returns 0.00577 where `torchmetrics` returns 0.00563, so upstream's loss is
   restored rather than approximated. End to end, training on the scene above
   rose from 15.66 it/s to 25.45 it/s.
-- Commit: PENDING
+- Commit: 5af229d
