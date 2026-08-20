@@ -202,3 +202,48 @@ Entry format:
 - The 2026-08-04 A4000 parity figure of 23.67 dB was measured before the bs64
   path was known to fault at the default tile size. Which kernel that run
   exercised is not established.
+
+## 2026-08-20 — gsplat/device_profile.py, gsplat/rendering.py
+
+- Change: added `gsplat/device_profile.py`, which detects the GPU through
+  `torch.cuda.get_device_properties` and returns a `DeviceProfile` carrying the
+  architecture family, wavefront size, compute unit count, unified-memory flag
+  and the tile size tuned for that family. `rasterization`,
+  `rasterization_2dgs` and the autograd variant take `tile_size=None` by
+  default and resolve it from the profile. `GSPLAT_TILE_SIZE` overrides it.
+  RDNA resolves to 16, CDNA and GCN to 8, NVIDIA to 16.
+- Reason: **not a wavefront correctness issue, a tuning one.** The fork
+  inherited `tile_size = 8` from upstream with the comment that 8 performs
+  better on AMD GPUs. That was tuned on CDNA, where a 64-thread block is
+  exactly one wavefront. On RDNA the same block is two wavefronts and the
+  reasoning does not carry. Tile size sets the number of tile-Gaussian
+  intersections, and the radix sort over them is 97% of the forward pass:
+  measured on gfx1151, `isect_tiles` takes 14.20 ms against 0.64 ms for
+  `rasterize_to_pixels` and 0.03 ms for `fully_fused_projection`. A compiled-in
+  constant cannot serve both architectures, so the value is now selected at
+  runtime.
+- Verification: `tests/test_device_profile.py`, 19 tests, covering
+  classification of eight gfx targets, consistency between the detected family
+  and the tuned value, the environment override and its rejection of invalid
+  values, and that `tile_size=None` renders bit-identically to passing the
+  tuned value while an explicit value is still honoured. On a reconstructed
+  indoor scene at 300,000 Gaussians, training runs at 23.63 and 23.17 it/s over
+  two runs under the profile, against 20.94 and 21.15 it/s with
+  `GSPLAT_TILE_SIZE=8`. Gradients were separately confirmed identical across
+  tile sizes 8, 16, 24 and 32, with finite differences passing at 32.
+- Commit: PENDING
+
+## 2026-08-20 — examples/simple_trainer.py (structural similarity)
+
+- Change: documented in `README.md` that `fused_ssim` builds under ROCm
+  unmodified. The trainer already prefers it when importable.
+- Reason: **not a wavefront issue.** The extension was assumed unavailable on
+  ROCm and the `torchmetrics` fallback was treated as permanent. `fused_ssim`
+  uses 16x16 shared-memory tiles and no warp-level primitives, so nothing in it
+  depends on the wavefront size, and its `setup.py` already detects ROCm.
+- Verification: at 580x1264 the term costs 0.98 ms forward and backward through
+  `fused_ssim` against 23.39 ms through `torchmetrics`. `padding="valid"`
+  returns 0.00577 where `torchmetrics` returns 0.00563, so upstream's loss is
+  restored rather than approximated. End to end, training on the scene above
+  rose from 15.66 it/s to 25.45 it/s.
+- Commit: PENDING

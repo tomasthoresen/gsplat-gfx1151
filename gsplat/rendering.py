@@ -7,6 +7,7 @@ import torch.nn.functional as F
 from torch import Tensor
 from typing_extensions import Literal
 
+from .device_profile import default_tile_size
 from .cuda._wrapper import (
     RollingShutterType,
     FThetaCameraDistortionParameters,
@@ -46,7 +47,9 @@ def rasterization(
     eps2d: float = 0.3,
     sh_degree: Optional[int] = None,
     packed: bool = True,
-    tile_size: int = 8, #Changed from 16 to 8 tile size as 8 has better performance on AMD GPUs
+    tile_size: Optional[int] = None,  # None selects the value tuned for
+    #                                  the detected GPU architecture; see
+    #                                  gsplat.device_profile
     backgrounds: Optional[Tensor] = None,
     render_mode: Literal["RGB", "D", "ED", "RGB+D", "RGB+ED"] = "RGB",
     sparse_grad: bool = False,
@@ -272,6 +275,8 @@ def rasterization(
     C = viewmats.shape[-3]
     I = B * C
     device = means.device
+    if tile_size is None:
+        tile_size = default_tile_size(device)
     assert means.shape == batch_dims + (N, 3), means.shape
     if covars is None:
         assert quats.shape == batch_dims + (N, 4), quats.shape
@@ -784,7 +789,7 @@ def _rasterization(
     far_plane: float = 1e10,
     eps2d: float = 0.3,
     sh_degree: Optional[int] = None,
-    tile_size: int = 16,
+    tile_size: Optional[int] = None,
     backgrounds: Optional[Tensor] = None,
     render_mode: Literal["RGB", "D", "ED", "RGB+D", "RGB+ED"] = "RGB",
     rasterize_mode: Literal["classic", "antialiased"] = "classic",
@@ -819,6 +824,8 @@ def _rasterization(
     C = viewmats.shape[-3]
     I = B * C
     device = means.device
+    if tile_size is None:
+        tile_size = default_tile_size(device)
     assert means.shape == batch_dims + (N, 3), means.shape
     assert quats.shape == batch_dims + (N, 4), quats.shape
     assert scales.shape == batch_dims + (N, 3), scales.shape
@@ -1283,7 +1290,7 @@ def rasterization_2dgs(
     eps2d: float = 0.3,
     sh_degree: Optional[int] = None,
     packed: bool = False,
-    tile_size: int = 16,
+    tile_size: Optional[int] = None,
     backgrounds: Optional[Tensor] = None,
     render_mode: Literal["RGB", "D", "ED", "RGB+D", "RGB+ED"] = "RGB",
     sparse_grad: bool = False,
@@ -1399,6 +1406,8 @@ def rasterization_2dgs(
     C = viewmats.shape[-3]
     I = B * C
     device = means.device
+    if tile_size is None:
+        tile_size = default_tile_size(device)
     channels = colors.shape[-1]
 
     assert means.shape == batch_dims + (N, 3), means.shape

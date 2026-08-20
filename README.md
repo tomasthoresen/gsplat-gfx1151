@@ -52,6 +52,66 @@ differences taken through the forward pass, at both tile sizes and at 3 and 32
 colour channels. They need no reference implementation, so they run without
 `nerfacc`, which has no ROCm build.
 
+## Architecture-tuned defaults
+
+The rasterizer's tuned parameters do not carry between GPU architectures. The
+tile size is the clearest case. It sets how many tile-Gaussian intersections
+the pipeline produces, and the radix sort over those intersections is 97% of
+the forward pass, so the value that is fastest on one architecture is not
+fastest on another.
+
+`gsplat.device_profile` detects the GPU at runtime and supplies the value tuned
+for it. Detection reads `torch.cuda.get_device_properties`, so it needs no
+external tools and behaves the same under ROCm and CUDA.
+
+```bash
+python -m gsplat.device_profile
+```
+
+```
+GPU              : AMD Radeon 8060S Graphics
+Architecture     : gfx1151 (rdna, amd)
+Wavefront size   : 32
+Compute units    : 20
+Shared mem/block : 64 KiB
+Memory           : 64.0 GiB (unified with host)
+Tile size        : 16 (tuned for rdna)
+```
+
+| Family | Wavefront | Tile size | Basis |
+| --- | --- | --- | --- |
+| RDNA (gfx10xx/11xx/12xx) | 32 | 16 | measured on gfx1151 |
+| CDNA, GCN (gfx9xx) | 64 | 8 | upstream ROCm/gsplat's tuned value |
+| NVIDIA | 32 | 16 | upstream nerfstudio gsplat default |
+
+`rasterization(...)` takes `tile_size=None` by default, which selects the tuned
+value. Passing a number keeps that number. `GSPLAT_TILE_SIZE` overrides both.
+
+On gfx1151, at 300,000 Gaussians on a reconstructed indoor scene, training runs
+at 23.6 it/s under the tuned value against 21.0 it/s at tile size 8. Tile 8
+produces 11.7 million tile-Gaussian intersections on that scene where tile 16
+produces 3.3 million. Only gfx1151 is measured; the value is applied across RDNA
+by inference from the shared wavefront size.
+
+## Faster structural similarity
+
+The training loss includes a structural similarity term. `simple_trainer.py`
+uses the `fused_ssim` extension when it is importable and falls back to a
+`torchmetrics` implementation otherwise.
+
+`fused_ssim` builds under ROCm without modification: it uses 16x16 shared-memory
+tiles and no warp-level primitives, so it does not depend on the wavefront size.
+
+```bash
+git clone https://github.com/rahul-goel/fused-ssim.git
+cd fused-ssim
+PYTORCH_ROCM_ARCH=gfx1151 pip install . --no-build-isolation
+```
+
+On gfx1151 at 580x1264 the term costs 0.98 ms forward and backward through
+`fused_ssim`, against 23.39 ms through the fallback. Installing it raised
+training on the scene above from 15.7 it/s to 25.4 it/s.
+
 ## Usage
 
 `examples/minimal_render.py` needs no dataset. It builds a small scene of
