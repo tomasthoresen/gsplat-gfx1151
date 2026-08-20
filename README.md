@@ -1,3 +1,107 @@
+# GSplat for gfx1151 (RDNA3.5, wave32)
+
+Author: Tomas Thoresen <tomasthoresen@gmail.com>
+
+A fork of [ROCm/gsplat](https://github.com/ROCm/gsplat) that runs on gfx1151
+(RDNA3.5), the integrated Radeon 8060S in the Ryzen AI MAX+ 395 (Strix Halo).
+
+Upstream targets AMD Instinct accelerators, which are CDNA parts with a
+wavefront size of 64. A **wavefront** is the group of GPU lanes that execute in
+lockstep. RDNA parts run 32 lanes per wavefront, and every warp-level primitive
+in upstream is sized for 64. Adapting them is the substance of this port.
+`PORTING_LOG.md` records each change, its reason, and how it was verified.
+
+The upstream README follows below, from "GSplat for ROCm". Its stated hardware,
+ROCm and PyTorch versions describe upstream's target, not this fork's.
+
+## Requirements
+
+- gfx1151. Other RDNA parts share the wave32 property but are untested.
+- ROCm 7.2.1.
+- PyTorch built for ROCm. Verified on 2.13.0+rocm7.2 and 2.11.0+rocm7.2.
+- Python 3.11 or later.
+
+## Build
+
+```bash
+git clone --recursive https://github.com/tomasthoresen/gsplat-gfx1151.git
+cd gsplat-gfx1151
+
+PYTORCH_ROCM_ARCH=gfx1151 ROCM_HOME=/opt/rocm MAX_JOBS=16 \
+    pip install -e . --no-build-isolation
+```
+
+`--recursive` matters: the build needs the vendored glm submodule. It is staged
+to `${XDG_CACHE_HOME:-~/.cache}/gsplat-gfx1151/glm_ext` before compiling,
+because hipify (which rewrites CUDA sources to HIP) copies only `.cu`, `.cuh`,
+`.h`, `.hpp` and `.cpp` files and so drops glm's 138 `.inl` files. The staging
+directory must sit outside the source tree, or hipify rewrites the staged copy
+too. `GSPLAT_GLM_DIR` overrides the location.
+
+## Verify
+
+```bash
+pip install pytest
+pytest tests/test_wave_backward.py -v
+```
+
+Eleven tests check the backward rasterization kernels against central finite
+differences taken through the forward pass, at both tile sizes and at 3 and 32
+colour channels. They need no reference implementation, so they run without
+`nerfacc`, which has no ROCm build.
+
+## Usage
+
+`examples/minimal_render.py` needs no dataset. It builds a small scene of
+coloured Gaussians in code, renders it, then optimises a second randomly
+initialised set until its render matches the first. The first half exercises
+the forward rasterizer, the second the backward pass.
+
+```bash
+python examples/minimal_render.py --out-dir renders
+```
+
+```
+device: AMD Radeon 8060S Graphics
+
+rendering target scene
+  image (256, 256, 3), range [0.000, 0.972]
+  wrote renders/target.png
+
+fitting 200 Gaussians over 300 steps
+  step     0  L1 0.02577
+  step   299  L1 0.00192
+
+  L1 0.02577 -> 0.00192
+  wrote renders/fitted.png
+```
+
+The core call is `gsplat.rasterization`:
+
+```python
+from gsplat import rasterization
+
+renders, alphas, info = rasterization(
+    means,      # [N, 3]     centre of each Gaussian
+    quats,      # [N, 4]     rotation, normalised
+    scales,     # [N, 3]     extent along each local axis, positive
+    opacities,  # [N]        in [0, 1]
+    colors,     # [N, 3]     in [0, 1]
+    viewmats,   # [C, 4, 4]  world-to-camera
+    Ks,         # [C, 3, 3]  camera intrinsics
+    width,
+    height,
+)
+# renders: [C, height, width, 3]
+```
+
+Every tensor is differentiable, so an optimiser fits them to target images.
+
+`examples/train_colmap.md` covers reconstructing a real scene: camera poses from
+photographs with COLMAP, then training a splat on them.
+
+---
+
 # GSplat for ROCm
 
 **GSplat** is an open-source library for GPU-accelerated rasterization of Gaussians with Python bindings. It is inspired by the SIGGRAPH paper [3D Gaussian Splatting for Real-Time Rendering of Radiance Fields](https://repo-sam.inria.fr/fungraph/3d-gaussian-splatting/).

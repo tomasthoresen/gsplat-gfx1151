@@ -4,6 +4,13 @@
 #include <cstdint>
 #include <glm/gtc/type_ptr.hpp>
 
+// Wavefront size this port targets. RDNA parts (gfx10xx/gfx11xx) run 32 lanes
+// per wavefront; CDNA/GCN parts (gfx9xx) run 64. Every warp-level primitive in
+// this fork is sized against this value.
+#ifndef GSPLAT_WAVE_SIZE
+#define GSPLAT_WAVE_SIZE 32
+#endif
+
 #ifndef USE_ROCM
 #include <cooperative_groups.h>
 #include <cub/cub.cuh>
@@ -41,7 +48,8 @@ namespace gsplat {
         auto &caching_allocator = *::c10::cuda::CUDACachingAllocator::get();   \
         auto temp_storage = caching_allocator.allocate(temp_storage_bytes);    \
         res = func(temp_storage.get(), temp_storage_bytes, __VA_ARGS__);  \
-	assert(res == hipSuccess);                                            \
+	TORCH_CHECK(res == hipSuccess, "rocPRIM call failed: ",              \
+            hipGetErrorString(res));                                          \
     } while (false)
 #endif
 } // namespace gsplat

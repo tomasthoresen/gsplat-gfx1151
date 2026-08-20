@@ -164,7 +164,24 @@ _C = None
 try:
     # Try to import the compiled module (via setup.py or pre-built .so)
     from gsplat import csrc as _C
-except ImportError:
+except ImportError as _import_error:
+    # A compiled extension present on disk but failing to load is a build
+    # error, not a missing build -- usually an ABI mismatch after a torch or
+    # Python upgrade. Surface it rather than silently disabling gsplat and
+    # failing later with "'NoneType' object has no attribute ...".
+    _pkg_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    _artifacts = glob.glob(os.path.join(_pkg_dir, "csrc*.so")) + glob.glob(
+        os.path.join(_pkg_dir, "csrc*.pyd")
+    )
+    if _artifacts:
+        raise ImportError(
+            f"gsplat: found a compiled extension at {_artifacts[0]} but it "
+            f"failed to load: {_import_error}\n"
+            "This usually means it was built against a different PyTorch or "
+            "Python than the one now in use. Rebuild it with:\n"
+            "  pip install -e . --no-build-isolation"
+        ) from _import_error
+
     # if that fails, try with JIT compilation
     if cuda_toolkit_available():
         name = "gsplat_cuda"

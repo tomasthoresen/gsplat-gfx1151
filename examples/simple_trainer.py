@@ -21,11 +21,15 @@ from datasets.traj import (
     generate_interpolated_path,
     generate_spiral_path,
 )
-from fused_ssim import fused_ssim
+try:
+    from fused_ssim import fused_ssim
+except ImportError:  # optional CUDA/HIP extension, not built on ROCm here
+    fused_ssim = None
 from torch import Tensor
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.tensorboard import SummaryWriter
 from torchmetrics.image import PeakSignalNoiseRatio, StructuralSimilarityIndexMeasure
+from torchmetrics.functional.image import structural_similarity_index_measure
 from torchmetrics.image.lpip import LearnedPerceptualImagePatchSimilarity
 from typing_extensions import Literal, assert_never
 from utils import AppearanceOptModule, CameraOptModule, knn, rgb_to_sh, set_random_seed
@@ -681,9 +685,16 @@ class Runner:
 
             # loss
             l1loss = F.l1_loss(colors, pixels)
-            ssimloss = 1.0 - fused_ssim(
-                colors.permute(0, 3, 1, 2), pixels.permute(0, 3, 1, 2), padding="valid"
-            )
+            if fused_ssim is not None:
+                ssimloss = 1.0 - fused_ssim(
+                    colors.permute(0, 3, 1, 2), pixels.permute(0, 3, 1, 2),
+                    padding="valid",
+                )
+            else:
+                ssimloss = 1.0 - structural_similarity_index_measure(
+                    colors.permute(0, 3, 1, 2), pixels.permute(0, 3, 1, 2),
+                    data_range=1.0,
+                )
             # ssimloss = 1.0 - self.ssim(
             #      colors.permute(0, 3, 1, 2), pixels.permute(0, 3, 1, 2)
             # )

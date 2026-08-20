@@ -759,9 +759,17 @@ void launch_rasterize_to_pixels_3dgs_bwd_kernel(
     // Optimization for ROCm: Use smaller batch size to reduce shared memory usage
 
     const uint32_t block_size = tile_size * tile_size;
+    // rasterize_bs64_to_pixels_3dgs_bwd_kernel treats its 64-thread block as a
+    // single wavefront: it uses the block thread rank as a lane id, shuffles
+    // across 64 lanes, indexes with e%64 and e/64, and the shared-memory
+    // branch below sizes the allocation for one wave. On wave32 that block is
+    // two waves against a one-wave layout, which faults with
+    // hipErrorIllegalAddress. block_size == 64 is a tile-size dispatch and is
+    // correct as such; the kernel it selects is the wave64 constraint.
+    const bool use_bs64 = (block_size == 64) && (GSPLAT_WAVE_SIZE == 64);
     uint32_t max_batch_size;
     int64_t shmem_size;
-    if (block_size == 64) { // wave64-optimized path
+    if (use_bs64) { // wave64-optimized path
       max_batch_size = 32;
       //max_batch_size = min(max_batch_size, block_size);
       if (CDIM <= 32) {
@@ -813,7 +821,7 @@ void launch_rasterize_to_pixels_3dgs_bwd_kernel(
         );
     }
 #else
-    auto KERNEL = (block_size == 64) ?
+    auto KERNEL = use_bs64 ?
 	    rasterize_bs64_to_pixels_3dgs_bwd_kernel<CDIM, float> :
 	    rasterize_to_pixels_3dgs_bwd_kernel<CDIM, float>;
     hipError_t err = hipFuncSetAttribute(
