@@ -18,7 +18,9 @@ ROCm and PyTorch versions describe upstream's target, not this fork's.
 
 - gfx1151. Other RDNA parts share the wave32 property but are untested.
 - ROCm 7.2.1.
-- PyTorch built for ROCm. Verified on 2.13.0+rocm7.2 and 2.11.0+rocm7.2.
+- PyTorch built for ROCm. The changes on this branch are verified on
+  2.11.0+rocm7.2. Earlier revisions of the port were developed against
+  2.13.0+rocm7.2, which this branch has not been re-tested on.
 - Python 3.11 or later.
 
 ## Build
