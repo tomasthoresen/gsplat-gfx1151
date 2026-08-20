@@ -17,11 +17,20 @@ ROCm and PyTorch versions describe upstream's target, not this fork's.
 ## Requirements
 
 - gfx1151. Other RDNA parts share the wave32 property but are untested.
-- ROCm 7.2.1.
-- PyTorch built for ROCm. The changes on this branch are verified on
-  2.11.0+rocm7.2. Earlier revisions of the port were developed against
-  2.13.0+rocm7.2, which this branch has not been re-tested on.
 - Python 3.11 or later.
+- A ROCm stack and a matching PyTorch. Two combinations are verified:
+
+| ROCm | PyTorch | Toolchain | Tests | Throughput |
+| --- | --- | --- | --- | --- |
+| 7.2.1, system | 2.11.0+rocm7.2 | HIP 7.2.26015, clang 22.0.0git | 30/30 | 26.1 it/s |
+| 7.14.0, pip | 2.15.0.dev+rocm7.14 | HIP 7.14.60850, clang 23.0.0git | 30/30 | 24.7 it/s |
+
+Throughput is 400 training steps at 300,000 Gaussians on a reconstructed indoor
+scene with `fused_ssim` present, both rows measured in one session. Figures
+taken in different sessions vary by around 10% on this part, so the two rows
+compare to each other and not to numbers quoted elsewhere.
+
+PyTorch 2.13.0+rocm7.2 is untested on this branch.
 
 ## Build
 
@@ -39,6 +48,40 @@ because hipify (which rewrites CUDA sources to HIP) copies only `.cu`, `.cuh`,
 `.h`, `.hpp` and `.cpp` files and so drops glm's 138 `.inl` files. The staging
 directory must sit outside the source tree, or hipify rewrites the staged copy
 too. `GSPLAT_GLM_DIR` overrides the location.
+
+The build locates ROCm in this order: an explicit `ROCM_HOME` or `ROCM_PATH`,
+then a ROCm installed as Python packages, then `/opt/rocm`.
+
+### Building against ROCm 7.14
+
+ROCm 7.9 and later ship through [TheRock](https://github.com/ROCm/TheRock) as
+Python packages rather than under `/opt/rocm`, and install with pip. No system
+ROCm installation is needed, and an existing one is left untouched.
+
+```bash
+pip install --pre torch torchvision \
+    --index-url https://download.pytorch.org/whl/nightly/rocm7.14
+pip install --pre --no-deps rocm-sdk-devel \
+    --index-url https://rocm.nightlies.amd.com/v2/gfx1151/
+
+ROCM_HOME=$(rocm-sdk path --root) PYTORCH_ROCM_ARCH=gfx1151 MAX_JOBS=16 \
+    pip install -e . --no-build-isolation
+```
+
+Four points apply to this route:
+
+- `rocm-sdk-devel` supplies the rocPRIM and hipCUB headers the rasterizer
+  needs. `rocm-sdk-core` carries the HIP headers but not those, and
+  `rocm-sdk-libraries` carries runtime objects and no headers at all.
+- `rocm-sdk-devel` is published only on AMD's nightly index, at a version
+  (`7.14.0a20260612`) that differs from the released `7.14.0` of the other
+  components. `--no-deps` stops pip replacing the working packages with that
+  stream. rocPRIM and hipCUB are header-only, so the difference carries no
+  binary interface.
+- The development package occupies about 22 GiB.
+- `torchvision` must match the installed PyTorch, or the trainer aborts with
+  `operator torchvision::nms does not exist`. Extensions compiled against
+  another PyTorch, `fused_ssim` among them, need rebuilding.
 
 ## Verify
 

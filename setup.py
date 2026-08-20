@@ -10,7 +10,33 @@ import re
 from setuptools import find_packages, setup
 
 IS_ROCM = True
-ROCM_HOME = "/opt/rocm"
+
+
+def _detect_rocm_home():
+    """Locate the ROCm installation.
+
+    ROCm 7.9 and later can be installed as Python packages through TheRock
+    rather than unpacked under /opt/rocm, so a hardcoded path no longer finds
+    it. Resolution order: an explicit ROCM_HOME or ROCM_PATH, then the
+    TheRock development package, then the traditional location.
+    """
+    for var in ("ROCM_HOME", "ROCM_PATH"):
+        value = os.environ.get(var)
+        if value and osp.isdir(value):
+            return value
+    try:
+        import _rocm_sdk_devel
+
+        root = osp.dirname(_rocm_sdk_devel.__file__)
+        if osp.isdir(osp.join(root, "include", "hip")):
+            return root
+    except ImportError:
+        pass
+    return "/opt/rocm"
+
+
+ROCM_HOME = _detect_rocm_home()
+print(f"Using ROCm from: {ROCM_HOME}")
 import torch
 
 __version__ = None
@@ -276,7 +302,7 @@ def get_extensions():
             f"{os.environ['HOME']}/.local/include",
             f"/opt/conda/include",
             f"/opt/conda/envs/py_3.12/lib/python3.12/site-packages/",
-            f"/opt/rocm/include",
+            osp.join(ROCM_HOME, "include"),
         ]
 
         extension = CUDAExtension(
