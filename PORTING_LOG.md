@@ -261,7 +261,7 @@ Entry format:
   change lets the build work against a container or a non-default prefix.
 - Verification: builds against ROCm 7.2.1 at `/opt/rocm` and against a
   pip-installed ROCm 7.14.0, without editing the file between the two.
-- Commit: PENDING
+- Commit: bdd5712
 
 ## 2026-08-20 — ROCm 7.14 verification
 
@@ -288,4 +288,4 @@ Entry format:
   `torchvision` must match the installed PyTorch or the trainer aborts with
   `operator torchvision::nms does not exist`, and extensions built against
   another PyTorch, including `fused_ssim`, need rebuilding.
-- Commit: PENDING
+- Commit: bdd5712
