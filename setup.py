@@ -41,7 +41,6 @@ import torch
 
 __version__ = None
 exec(open("gsplat/version.py", "r").read())
-import shutil
 import subprocess
 
 def get_rocm_arch():
@@ -146,48 +145,6 @@ def get_rocm_wavefront_size():
     except Exception as e:
         print(f"Error detecting wavefront size ({e}), using default 64")
         return 64
-
-
-def stage_glm_headers(current_dir):
-    """Return an include dir holding a complete glm header tree.
-
-    torch's hipify copies only .cu/.cuh/.h/.hpp/.cpp into the generated hip/
-    tree, so glm's 138 .inl files are dropped when glm is included from inside
-    the source tree and the build fails on missing template definitions. Stage
-    a full copy outside the hipify scan root and include that instead.
-
-    Override the location with GSPLAT_GLM_DIR (must contain a 'glm' directory).
-    """
-    override = os.environ.get("GSPLAT_GLM_DIR")
-    if override:
-        override = os.path.expanduser(override)
-        if not osp.isdir(osp.join(override, "glm")):
-            raise RuntimeError(
-                f"GSPLAT_GLM_DIR={override} does not contain a 'glm' directory"
-            )
-        print(f"Using glm headers from GSPLAT_GLM_DIR: {override}")
-        return override
-
-    src = osp.join(current_dir, "gsplat", "cuda", "csrc", "third_party", "glm", "glm")
-    if not osp.isdir(src):
-        raise RuntimeError(
-            f"glm headers not found at {src}. Initialise the submodule with "
-            "'git submodule update --init --recursive', or set GSPLAT_GLM_DIR."
-        )
-    # The staging directory must sit outside the project tree. hipify scans the
-    # whole project and would otherwise rewrite the staged copy too, emitting
-    # duplicate *_hip.h headers that collide with the originals.
-    cache_home = os.environ.get("XDG_CACHE_HOME") or osp.join(
-        os.path.expanduser("~"), ".cache"
-    )
-    dst_root = osp.join(cache_home, "gsplat", "glm_ext")
-    dst = osp.join(dst_root, "glm")
-    if osp.isdir(dst):
-        shutil.rmtree(dst)
-    os.makedirs(dst_root, exist_ok=True)
-    shutil.copytree(src, dst)
-    print(f"Staged glm headers for hipify at: {dst_root}")
-    return dst_root
 
 
 def is_git_repo(folder_path):
