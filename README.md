@@ -24,13 +24,20 @@ ROCm and PyTorch versions describe upstream's target, not this fork's.
 | --- | --- | --- | --- | --- |
 | 7.2.1, system | 2.11.0+rocm7.2 | HIP 7.2.26015, clang 22.0.0git | 30/30 | 26.1 it/s |
 | 7.14.0, pip | 2.15.0.dev+rocm7.14 | HIP 7.14.60850, clang 23.0.0git | 30/30 | 24.7 it/s |
+| 7.2.1, system | 2.13.0+rocm7.2 | HIP 7.2.26015, clang 22.0.0git | 11/11 wave, 105 upstream | 91 fps at 1.07 M |
 
 Throughput is 400 training steps at 300,000 Gaussians on a reconstructed indoor
 scene with `fused_ssim` present, both rows measured in one session. Figures
 taken in different sessions vary by around 10% on this part, so the two rows
 compare to each other and not to numbers quoted elsewhere.
 
-PyTorch 2.13.0+rocm7.2 is untested on this branch.
+The third row is this branch after the 2026-09-11 merge, measured on a real
+scene rather than a synthetic one: 24 fixed views of a 1,074,312-gaussian
+office splat at 1280x720, 11.0 ms a frame. The remaining 81 upstream cases
+cannot run here at all - they compare against `nerfacc`, whose CUDA backend
+does not build on ROCm - so the port's own finite-difference tests carry the
+backward-pass verification instead. They need no reference implementation:
+each gradient is checked against the forward pass it came from.
 
 ## Build
 
