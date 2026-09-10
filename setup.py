@@ -1,6 +1,7 @@
 import glob
 import os
 import os.path as osp
+import shutil
 import pathlib
 import platform
 import sys
@@ -9,7 +10,33 @@ import re
 from setuptools import find_packages, setup
 
 IS_ROCM = True
-ROCM_HOME = "/opt/rocm"
+
+
+def _detect_rocm_home():
+    """Locate the ROCm installation.
+
+    ROCm 7.9 and later can be installed as Python packages through TheRock
+    rather than unpacked under /opt/rocm, so a hardcoded path no longer finds
+    it. Resolution order: an explicit ROCM_HOME or ROCM_PATH, then the
+    TheRock development package, then the traditional location.
+    """
+    for var in ("ROCM_HOME", "ROCM_PATH"):
+        value = os.environ.get(var)
+        if value and osp.isdir(value):
+            return value
+    try:
+        import _rocm_sdk_devel
+
+        root = osp.dirname(_rocm_sdk_devel.__file__)
+        if osp.isdir(osp.join(root, "include", "hip")):
+            return root
+    except ImportError:
+        pass
+    return "/opt/rocm"
+
+
+ROCM_HOME = _detect_rocm_home()
+print(f"Using ROCm from: {ROCM_HOME}")
 import torch
 
 __version__ = None
@@ -268,6 +295,51 @@ def get_ext():
     return BuildExtension.with_options(no_python_abi_suffix=True, use_ninja=True)
 
 
+def stage_glm_headers(current_dir):
+    """Return an include directory holding a complete glm header tree.
+
+    torch's hipify copies only .cu/.cuh/.h/.hpp/.cpp into the generated hip/
+    tree, so glm's 138 .inl files are dropped when glm is included from inside
+    the source tree, and the build fails on missing template definitions. The
+    ROCm branch of upstream's setup.py omits a glm include directory entirely,
+    so the build otherwise depends on glm being installed somewhere on the
+    system include path.
+
+    A complete copy is staged outside the project tree. The location matters:
+    a staging directory inside the project is itself rewritten by hipify,
+    which emits duplicate *_hip.h headers that collide with the originals.
+
+    Override with GSPLAT_GLM_DIR (must contain a 'glm' directory).
+    """
+    override = os.environ.get("GSPLAT_GLM_DIR")
+    if override:
+        override = os.path.expanduser(override)
+        if not osp.isdir(osp.join(override, "glm")):
+            raise RuntimeError(
+                f"GSPLAT_GLM_DIR={override} does not contain a 'glm' directory"
+            )
+        print(f"Using glm headers from GSPLAT_GLM_DIR: {override}")
+        return override
+
+    src = osp.join(current_dir, "gsplat", "cuda", "csrc", "third_party", "glm", "glm")
+    if not osp.isdir(src):
+        raise RuntimeError(
+            f"glm headers not found at {src}. Initialise the submodule with "
+            "'git submodule update --init --recursive', or set GSPLAT_GLM_DIR."
+        )
+    cache_home = os.environ.get("XDG_CACHE_HOME") or osp.join(
+        os.path.expanduser("~"), ".cache"
+    )
+    dst_root = osp.join(cache_home, "gsplat-gfx1151", "glm_ext")
+    dst = osp.join(dst_root, "glm")
+    if osp.isdir(dst):
+        shutil.rmtree(dst)
+    os.makedirs(dst_root, exist_ok=True)
+    shutil.copytree(src, dst)
+    print(f"Staged glm headers for hipify at: {dst_root}")
+    return dst_root
+
+
 def get_extensions():
     if IS_ROCM:
         from torch.utils.cpp_extension import CUDAExtension
@@ -333,7 +405,7 @@ def get_extensions():
             f"{os.environ['HOME']}/.local/include",
             f"/opt/conda/include",
             f"/opt/conda/envs/py_3.12/lib/python3.12/site-packages/",
-            f"/opt/rocm/include",
+            osp.join(ROCM_HOME, "include"),
         ]
 
         extension = CUDAExtension(
