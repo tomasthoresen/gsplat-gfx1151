@@ -2,7 +2,16 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <ATen/ops/empty.h>
+#include <c10/util/Exception.h>
 #include <glm/gtc/type_ptr.hpp>
+
+// Wavefront size of the target GPU (wave32 on RDNA gfx10xx/gfx11xx, wave64 on
+// CDNA/GCN gfx9xx). Normally injected by setup.py from rocminfo; this fallback
+// keeps manual compilation working.
+#if defined(USE_ROCM) && !defined(GSPLAT_WARP_SIZE)
+#define GSPLAT_WARP_SIZE 64
+#endif
 
 #ifndef USE_ROCM
 #include <cooperative_groups.h>
@@ -38,10 +47,12 @@ namespace gsplat {
     do {                                                                       \
         size_t temp_storage_bytes = 0;                                         \
         auto res = func(nullptr, temp_storage_bytes, __VA_ARGS__);                        \
-        auto &caching_allocator = *::c10::hip::HIPCachingAllocator::get();   \
-        auto temp_storage = caching_allocator.allocate(temp_storage_bytes);    \
-        res = func(temp_storage.get(), temp_storage_bytes, __VA_ARGS__);  \
-	assert(res == hipSuccess);                                            \
+        auto temp_storage = at::empty( \
+            {static_cast<int64_t>(temp_storage_bytes)}, \
+            at::TensorOptions().dtype(at::kByte).device(at::kCUDA)); \
+        res = func(temp_storage.data_ptr(), temp_storage_bytes, __VA_ARGS__);  \
+	TORCH_CHECK(res == hipSuccess, "rocPRIM call failed: ",              \
+            hipGetErrorString(res));                                          \
     } while (false)
 #endif
 } // namespace gsplat

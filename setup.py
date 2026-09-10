@@ -14,6 +14,7 @@ import torch
 
 __version__ = None
 exec(open("gsplat/version.py", "r").read())
+import shutil
 import subprocess
 
 def get_rocm_arch():
@@ -65,6 +66,102 @@ def get_rocm_arch():
         print(f"Unexpected error getting ROCm architecture: {e}")
         print("Using default architecture: gfx942")
         return "gfx942"
+
+
+def get_rocm_wavefront_size():
+    """
+    Detect the GPU wavefront (wave) size.
+
+    RDNA parts (gfx10xx/gfx11xx, e.g. gfx1151) run wave32; CDNA/GCN parts
+    (gfx9xx) run wave64. Warp-collective code must be instantiated for the
+    actual size, so this is detected at build time and injected as
+    GSPLAT_WARP_SIZE.
+
+    Override with GSPLAT_WARP_SIZE=<32|64> when building for a target that is
+    not the machine doing the build.
+
+    Returns:
+        int: the GPU wavefront size (32 or 64), or 64 as fallback.
+    """
+    override = os.environ.get("GSPLAT_WARP_SIZE")
+    if override:
+        if override not in ("32", "64"):
+            raise RuntimeError(
+                f"GSPLAT_WARP_SIZE must be 32 or 64, got {override!r}"
+            )
+        print(f"Using wavefront size from GSPLAT_WARP_SIZE: {override}")
+        return int(override)
+
+    try:
+        result = subprocess.run(
+            ['rocminfo'], capture_output=True, text=True, check=True
+        )
+        # Parse per-agent blocks and read the size from GPU agents only. CPU
+        # agents are listed first and may also carry a Wavefront Size line, so
+        # taking the first match in the whole output is not safe.
+        sizes = []
+        for block in re.split(r'\nAgent \d+\n', result.stdout):
+            if not re.search(r'Device Type:\s+GPU', block):
+                continue
+            m = re.search(r'Wavefront Size:\s+(\d+)', block)
+            if m:
+                sizes.append(int(m.group(1)))
+        if not sizes:
+            print("Warning: no GPU agent wavefront size in rocminfo, using default 64")
+            return 64
+        if len(set(sizes)) > 1:
+            print(
+                f"Warning: GPU agents report differing wavefront sizes {sizes}; "
+                f"building for {sizes[0]}. Set GSPLAT_WARP_SIZE to override."
+            )
+        print(f"Detected ROCm wavefront size: {sizes[0]}")
+        return sizes[0]
+    except Exception as e:
+        print(f"Error detecting wavefront size ({e}), using default 64")
+        return 64
+
+
+def stage_glm_headers(current_dir):
+    """Return an include dir holding a complete glm header tree.
+
+    torch's hipify copies only .cu/.cuh/.h/.hpp/.cpp into the generated hip/
+    tree, so glm's 138 .inl files are dropped when glm is included from inside
+    the source tree and the build fails on missing template definitions. Stage
+    a full copy outside the hipify scan root and include that instead.
+
+    Override the location with GSPLAT_GLM_DIR (must contain a 'glm' directory).
+    """
+    override = os.environ.get("GSPLAT_GLM_DIR")
+    if override:
+        override = os.path.expanduser(override)
+        if not osp.isdir(osp.join(override, "glm")):
+            raise RuntimeError(
+                f"GSPLAT_GLM_DIR={override} does not contain a 'glm' directory"
+            )
+        print(f"Using glm headers from GSPLAT_GLM_DIR: {override}")
+        return override
+
+    src = osp.join(current_dir, "gsplat", "cuda", "csrc", "third_party", "glm", "glm")
+    if not osp.isdir(src):
+        raise RuntimeError(
+            f"glm headers not found at {src}. Initialise the submodule with "
+            "'git submodule update --init --recursive', or set GSPLAT_GLM_DIR."
+        )
+    # The staging directory must sit outside the project tree. hipify scans the
+    # whole project and would otherwise rewrite the staged copy too, emitting
+    # duplicate *_hip.h headers that collide with the originals.
+    cache_home = os.environ.get("XDG_CACHE_HOME") or osp.join(
+        os.path.expanduser("~"), ".cache"
+    )
+    dst_root = osp.join(cache_home, "gsplat", "glm_ext")
+    dst = osp.join(dst_root, "glm")
+    if osp.isdir(dst):
+        shutil.rmtree(dst)
+    os.makedirs(dst_root, exist_ok=True)
+    shutil.copytree(src, dst)
+    print(f"Staged glm headers for hipify at: {dst_root}")
+    return dst_root
+
 
 def is_git_repo(folder_path):
     """
@@ -191,6 +288,12 @@ def get_extensions():
         undef_macros = []
         define_macros = []
 
+        # Detect the GPU wavefront size and adapt warp-collective kernels to it
+        # (RDNA gfx11xx = 32, CDNA gfx9xx = 64). Injected as GSPLAT_WARP_SIZE.
+        wavefront_size = get_rocm_wavefront_size()
+        print(f"wavefront size is set to {wavefront_size}")
+        define_macros += [("GSPLAT_WARP_SIZE", str(wavefront_size))]
+
         extra_compile_args = {"cxx": ["-D__HIP_PLATFORM_AMD__" , "-Wno-sign-compare", "-DC10_CUDA_NO_CMAKE_CONFIGURE_FILE", "-DUSE_ROCM"]}
         if WITH_SYMBOLS:
             extra_compile_args["cxx"] += ["-g", "-O0"]
@@ -225,6 +328,7 @@ def get_extensions():
         current_dir = pathlib.Path(__file__).parent.resolve()
 
         include_dirs = [
+            stage_glm_headers(current_dir),  # complete glm (incl .inl), external to hipify scan
             osp.join(current_dir, "gsplat", "cuda", "include"),
             f"{os.environ['HOME']}/.local/include",
             f"/opt/conda/include",
