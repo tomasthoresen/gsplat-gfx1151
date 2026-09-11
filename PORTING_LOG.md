@@ -322,3 +322,36 @@ Entry format:
   site-packages path inherited from upstream; both are absent here and harmless,
   but they sit ahead of the ROCm include in the search order.
 - Commit: 0ef84d5
+
+## 2026-09-11 — gsplat-gfx1151: observation, not a change
+
+- Change: none. Recording a reproducible-looking hang so the next person does
+  not spend an afternoon on it, and so the next session knows what evidence was
+  already collected.
+- Observation: training a 1600-view office tile at 2560x1440 on gfx1151 stopped
+  making progress after 2000 of 70000 steps, at roughly 416,000 gaussians and
+  still densifying. The signature is specific:
+  - the host thread sat at 100% CPU in userspace, `R` state, `/proc/PID/syscall`
+    empty, so it was spinning rather than blocked on I/O;
+  - `read_bytes` and `syscr` did not move at all over a 60 s sample, so no
+    training step was being taken - a step must fault in its frame;
+  - 5981 major faults total, so this was not page-cache thrash;
+  - the card stayed at 17% busy, 52 W, MCLK 1000 MHz for hours;
+  - the process then **survived SIGKILL** while still holding 2.5 GB of VRAM and
+    appearing in `rocm-smi --showpids`. A task that ignores SIGKILL in `R` state
+    is stuck in a driver path that does not check signals.
+  - `journalctl -k` logged no amdgpu ring timeout and no GPU reset, so the
+    driver never gave up on the queue either.
+- Not yet attributed. `ptrace_scope` is 1 on that box, so py-spy could not attach
+  to a process started by another session and there is no Python stack for the
+  hang. Starting the trainer as a descendant of the debugging shell would allow
+  one. Two candidates worth separating before blaming a kernel: the Radeon was
+  also running a Blender Cycles capture on the same integrated GPU when the hang
+  began, so GPU contention is confounded with the workload here; and the tile is
+  far larger per view than anything in tests/ (2560x1440 against the probe's
+  512x384).
+- Verification: none - nothing was changed. `kernel_probe.py` still passes on
+  this build, so whatever this is, it is not visible at 20,000 gaussians and
+  one forward/backward.
+- Workaround in use: the tile trains on the A4000 instead, which is the parity
+  reference anyway and has 125 GB of RAM against the Radeon's 31.7.
