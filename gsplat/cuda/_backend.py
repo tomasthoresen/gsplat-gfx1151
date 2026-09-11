@@ -165,9 +165,9 @@ try:
     # Try to import the compiled module (via setup.py or pre-built .so)
     from gsplat import csrc as _C
 except ImportError as _import_error:
-    # A compiled extension present on disk but failing to load is a build
-    # error, not a missing build -- usually an ABI mismatch after a torch or
-    # Python upgrade. Surface it rather than silently disabling gsplat and
+    # A compiled extension that exists on disk but fails to load is a build
+    # error, not a missing build -- typically an ABI mismatch after a torch or
+    # Python upgrade. Surface it instead of silently disabling gsplat and
     # failing later with "'NoneType' object has no attribute ...".
     _pkg_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     _artifacts = glob.glob(os.path.join(_pkg_dir, "csrc*.so")) + glob.glob(
@@ -247,7 +247,8 @@ except ImportError as _import_error:
 
     else:
         Console().print(
-            "[yellow]gsplat: No CUDA toolkit found. gsplat will be disabled.[/yellow]"
+            "[yellow]gsplat: No CUDA toolkit found and no compiled extension "
+            f"present ({_import_error}). gsplat will be disabled.[/yellow]"
         )
 
 if need_to_unset_max_jobs:

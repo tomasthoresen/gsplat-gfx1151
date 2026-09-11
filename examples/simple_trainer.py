@@ -23,7 +23,7 @@ from datasets.traj import (
 )
 try:
     from fused_ssim import fused_ssim
-except ImportError:  # optional CUDA/HIP extension, not built on ROCm here
+except ImportError:  # fused-SSIM CUDA/HIP extension not built on this platform
     fused_ssim = None
 from torch import Tensor
 from torch.nn.parallel import DistributedDataParallel as DDP
