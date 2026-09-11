@@ -12,6 +12,16 @@ from setuptools import find_packages, setup
 IS_ROCM = True
 
 
+def _usable_rocm_root(path):
+    """True if `path` is a ROCm root whose headers this build can compile against.
+
+    The test is the HIP headers, because -I$ROCM_HOME/include is the only reason
+    this function exists. A directory that holds hipcc but not include/hip is
+    not a root for our purposes, however much it looks like one.
+    """
+    return bool(path) and osp.isdir(osp.join(path, "include", "hip"))
+
+
 def _detect_rocm_home():
     """Locate the ROCm installation.
 
@@ -19,16 +29,43 @@ def _detect_rocm_home():
     rather than unpacked under /opt/rocm, so a hardcoded path no longer finds
     it. Resolution order: an explicit ROCM_HOME or ROCM_PATH, then the
     TheRock development package, then the traditional location.
+
+    Every candidate is checked for include/hip before it is accepted, env vars
+    included. ROCm 7.x on Ubuntu splits the install into per-component trees and
+    merges the headers only at the top, so the natural thing to put on PATH is a
+    component:
+
+        /opt/rocm-7.2.1/core-7.14/bin/hipcc          <- hipcc lives here
+        /opt/rocm-7.2.1/core-7.14/include/           <- no hip/, no thrust/
+        /opt/rocm-7.2.1/include/hip/                 <- the real headers
+        /opt/rocm-7.2.1/include/thrust/              <- rocThrust, which torch needs
+
+    A ROCM_PATH pointing at the component compiles nothing: -I gets a directory
+    with no HIP headers in it, the compiler falls back to its default search,
+    finds the distro libamdhip64-dev copy under /usr/include/hip, and every
+    translation unit dies on __AMDGCN_WAVEFRONT_SIZE - an identifier the 7.x
+    toolchain no longer declares. torch's headeronly/util/complex.h fails the
+    same way looking for <thrust/complex.h>. Neither error names ROCM_PATH, so
+    walking up to the parent when the component has no headers saves a long
+    detour. The variable is still honoured when it points somewhere usable.
     """
     for var in ("ROCM_HOME", "ROCM_PATH"):
         value = os.environ.get(var)
-        if value and osp.isdir(value):
+        if not value or not osp.isdir(value):
+            continue
+        if _usable_rocm_root(value):
             return value
+        parent = osp.dirname(osp.normpath(value))
+        if _usable_rocm_root(parent):
+            print(f"{var}={value} has no include/hip; using {parent}")
+            return parent
+        print(f"Warning: {var}={value} has no include/hip and neither does its "
+              f"parent; falling back")
     try:
         import _rocm_sdk_devel
 
         root = osp.dirname(_rocm_sdk_devel.__file__)
-        if osp.isdir(osp.join(root, "include", "hip")):
+        if _usable_rocm_root(root):
             return root
     except ImportError:
         pass
