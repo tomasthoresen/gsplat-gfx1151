@@ -289,3 +289,36 @@ Entry format:
   `operator torchvision::nms does not exist`, and extensions built against
   another PyTorch, including `fused_ssim`, need rebuilding.
 - Commit: bdd5712
+
+## 2026-09-11 — gsplat-gfx1151:setup.py
+
+- Change: `_detect_rocm_home()` now validates every candidate root for
+  `include/hip` before returning it, `ROCM_HOME` and `ROCM_PATH` included, and
+  falls back to the candidate's parent when a component directory fails the
+  check. New helper `_usable_rocm_root()`.
+- Reason: ROCm 7.2.1 on Ubuntu 24.04 splits the install into component trees and
+  merges the headers only at the top. `hipcc` lives in
+  `/opt/rocm-7.2.1/core-7.14/bin`, so that is the directory a `.bashrc` naturally
+  exports as `ROCM_PATH`, but `core-7.14/include` carries neither `hip/` nor
+  `thrust/`; both are at `/opt/rocm-7.2.1/include`. The env var was trusted
+  unchecked, `-I$ROCM_HOME/include` contributed nothing, and the compiler fell
+  back to its default search and picked up the distro `libamdhip64-dev` headers
+  under `/usr/include/hip`. Every translation unit then failed on
+  `__AMDGCN_WAVEFRONT_SIZE`, undeclared in the 7.x toolchain, with torch's
+  `headeronly/util/complex.h` failing beside it on a missing
+  `<thrust/complex.h>`. The wavefront-size wording is actively misleading here:
+  it points at the wave32 port, which is correct, rather than at an include path.
+- Verification: clean editable build on gfx1151 / ROCm 7.2.1 / torch
+  2.12.1+rocm7.2 with no `CXXFLAGS`, `CPLUS_INCLUDE_PATH` or
+  `HIPCC_COMPILE_FLAGS_APPEND` overrides, which the same tree previously
+  required. `kernel_probe.py` unchanged across the fix: loss 0.2490968257,
+  `img_mean` 0.4786094129, and `g_means` / `g_scales` / `g_opac` / `g_colors`
+  non-zero counts 36282 / 36282 / 12094 / 36282, matching the A4000 reference
+  recorded in PORT_gfx1151.v0.1.0.md. Build path only; no kernel touched.
+- Notes: `rocthrust-dev` must be installed. Torch pulls `<thrust/complex.h>` in
+  through a header every extension includes, so its absence fails the build
+  with a message about torch rather than about ROCm. The `include_dirs` list
+  still carries `/opt/conda/include` and an `/opt/conda/envs/py_3.12`
+  site-packages path inherited from upstream; both are absent here and harmless,
+  but they sit ahead of the ROCm include in the search order.
+- Commit: 0ef84d5
